@@ -1,15 +1,15 @@
 from datetime import date, timedelta
 
 import pytest
+from django.urls import reverse
 from django.contrib.auth.models import User
 from django.utils.timezone import now
 from rest_framework import status
 
-from AutorepairShop.views import ClientViewSet, EmployeeViewSet
 from AutorepairShop.models import Client, Automobile, Employee
 
 @pytest.mark.django_db
-def test_action_yearly_visits_counts_last_365(auth_get, user, client, automobile, mechanic, make_contract):
+def test_action_yearly_visits_counts_last_365(api_client, client, automobile, mechanic, make_contract):
     # Проверяем, что yearly_visits считает обращения клиента только за последний год
     make_contract(
         client=client, 
@@ -23,16 +23,15 @@ def test_action_yearly_visits_counts_last_365(auth_get, user, client, automobile
         employee=mechanic, 
         order_date = now().date() - timedelta(days=370)
     )
-    view = ClientViewSet.as_view({"get": "yearly_visits"})
-
-    response = auth_get(user, f"/clients/{client.id}/yearly_visits/", view, None, pk=client.id)
+    url = reverse("client-yearly-visits", kwargs={'pk': client.id})
+    response = api_client.get(url)
 
     assert response.status_code == status.HTTP_200_OK
     assert response.data["client"] == client.full_name
     assert response.data["visits"] == 1
 
 @pytest.mark.django_db
-def test_action_repeat_clients_returns_only_multi_visit(auth_get, user, client, automobile, mechanic, make_contract):
+def test_action_repeat_clients_returns_only_multi_visit(api_client, client, automobile, mechanic, make_contract):
     # Проверяем, что repeat_clients возвращает только клиентов с числом обращений > 1
     make_contract(client=client, auto=automobile, employee=mechanic)
     make_contract(client=client, auto=automobile, employee=mechanic)
@@ -48,9 +47,8 @@ def test_action_repeat_clients_returns_only_multi_visit(auth_get, user, client, 
         auto_model=automobile.auto_model,
     )
     make_contract(client=client_2, auto=auto_2, employee=mechanic)
-    view = ClientViewSet.as_view({"get": "repeat_clients"})
-    
-    response = auth_get(user, "/clients/repeat_clients/", view)
+    url = reverse("client-repeat-clients")
+    response = api_client.get(url)
 
     assert response.status_code == status.HTTP_200_OK
     names = [row["full_name"] for row in response.data]
@@ -58,17 +56,16 @@ def test_action_repeat_clients_returns_only_multi_visit(auth_get, user, client, 
     assert client_2.full_name not in names
 
 @pytest.mark.django_db
-def test_action_top_mechanic_by_brand_requires_query(auth_get, user):
+def test_action_top_mechanic_by_brand_requires_query(api_client):
     # Проверяем случай - если не передать ?brand= в top_mechanic_by_brand, то возвращается 400 с сообщением об ошибке
-    view = EmployeeViewSet.as_view({"get": "top_mechanic_by_brand"})
-
-    response = auth_get(user, "/employees/top_mechanic_by_brand/", view)
+    url = reverse("employee-top-mechanic-by-brand")
+    response = api_client.get(url)
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "brand" in response.data.get("error")
 
 @pytest.mark.django_db
-def test_action_top_mechanic_by_brand_selects_max(auth_get, user, mechanic, workshop, automobile, make_contract):
+def test_action_top_mechanic_by_brand_selects_max(api_client, mechanic, workshop, automobile, make_contract):
     # Проверяем, что top_mechanic_by_brand возвращает механика с максимальным количеством работ по заданному бренду
     car_brand = automobile.auto_model.car_brand
     client = automobile.client
@@ -85,9 +82,8 @@ def test_action_top_mechanic_by_brand_selects_max(auth_get, user, mechanic, work
     make_contract(client=client, auto=automobile, employee=mechanic)
     make_contract(client=client, auto=automobile, employee=mechanic_2)
     make_contract(client=client, auto=automobile, employee=mechanic_2)
-    view = EmployeeViewSet.as_view({"get": "top_mechanic_by_brand"})
-
-    response = auth_get(user, f"/employees/top_mechanic_by_brand/?brand={car_brand}", view, {"brand": car_brand})
+    url = reverse("employee-top-mechanic-by-brand")
+    response = api_client.get(url, {"brand": car_brand})
 
     assert response.status_code == status.HTTP_200_OK
     assert response.data["car_brand"] == car_brand
@@ -95,17 +91,16 @@ def test_action_top_mechanic_by_brand_selects_max(auth_get, user, mechanic, work
     assert response.data["job_counts"] == 2
 
 @pytest.mark.django_db
-def test_action_loyal_clients_with_incorrect_job_position(user, manager, auth_get):
+def test_action_loyal_clients_with_incorrect_job_position(manager, api_client):
     # Проверяем случай - если сотрудник не механик, то action loyal_clients возвращает 400 с сообщением об ошибке
-    view = EmployeeViewSet.as_view({"get": "loyal_clients"})
-
-    response = auth_get(user, f"/employees/{manager.id}/loyal_clients/", view, None, pk=manager.id)
+    url = reverse("employee-loyal-clients", kwargs={"pk": manager.id})
+    response = api_client.get(url)
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "Этот сотрудник не является механиком" in response.data.get("error")
 
 @pytest.mark.django_db
-def test_action_delayed_days_returns_correct_number_of_days_for_client(auth_get, user, client, mechanic, automobile, workshop, make_contract):
+def test_action_delayed_days_returns_correct_number_of_days_for_client(api_client, client, mechanic, automobile, make_contract):
     # Проверяем, что delayed_days корректно считает количество дней просрочки
     make_contract(
         client=client, 
@@ -114,9 +109,8 @@ def test_action_delayed_days_returns_correct_number_of_days_for_client(auth_get,
         scheduled_date_end_of_repair=date.today() - timedelta(days=10),
         actual_date_end_of_repair=date.today(),
     )
-    view = EmployeeViewSet.as_view({"get": "delayed_days"})
-
-    response = auth_get(user, f"/employees/{mechanic.id}/delayed_days/", view, None, pk=mechanic.id)
+    url = reverse("employee-delayed-days", kwargs={"pk": mechanic.id})
+    response = api_client.get(url)
 
     assert response.status_code == status.HTTP_200_OK
     rows = response.data
@@ -124,7 +118,7 @@ def test_action_delayed_days_returns_correct_number_of_days_for_client(auth_get,
     assert rows[0]["days_late"] == 10
 
 @pytest.mark.django_db
-def test_action_fines_calculation(user, mechanic, client, automobile, make_contract, auth_get):
+def test_action_fines_calculation(mechanic, client, automobile, make_contract, api_client):
     # Проверяем, что fines считает штраф корректно: 5% от total_payment за каждый день просрочки
     days_late = 3
     fine_amount = 10_000 * 0.05 * days_late
@@ -137,9 +131,8 @@ def test_action_fines_calculation(user, mechanic, client, automobile, make_contr
         actual_date_end_of_repair=now().date() - timedelta(days=2),
         total_payment=10000,
     )
-    view = EmployeeViewSet.as_view({"get": "fines"})
-
-    response = auth_get(user, f"/employees/{mechanic.id}/fines/", view, None, pk=mechanic.id)
+    url = reverse("employee-fines", kwargs={"pk": mechanic.id})
+    response = api_client.get(url)
 
     assert response.status_code == status.HTTP_200_OK
     fine_data = response.data[0]

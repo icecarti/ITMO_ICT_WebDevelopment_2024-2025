@@ -1,7 +1,7 @@
 import pytest
 from datetime import date
 from django.contrib.auth.models import User
-from rest_framework.test import APIRequestFactory, force_authenticate
+from rest_framework.test import APIClient, force_authenticate
 
 from AutorepairShop.models import (
     Client,
@@ -14,13 +14,10 @@ from AutorepairShop.models import (
 )
 
 @pytest.fixture
-def auth_get():
-    factory = APIRequestFactory()
-    def get(user, path, view, params=None, **kwargs):
-        request = factory.get(path, params or {})
-        force_authenticate(request, user=user)
-        return view(request, **kwargs)
-    return get
+def api_client(user):
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
 
 @pytest.fixture
 def user():
